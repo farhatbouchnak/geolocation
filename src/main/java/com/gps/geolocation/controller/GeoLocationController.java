@@ -5,8 +5,10 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.gps.geolocation.exceptionHandler.ResourceNotFoundException;
 import com.gps.geolocation.model.GpsLocation;
 import com.gps.geolocation.repository.GeoLocationRepository;
+import com.gps.geolocation.utils.GeoUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.geotools.referencing.GeodeticCalculator;
 import org.springframework.http.HttpStatus;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.*;
 
 @Slf4j
 @RestController
+@RequestMapping("/api")
 public class GeoLocationController {
 
 
@@ -25,7 +28,7 @@ public class GeoLocationController {
     this.geoLocationRepository = geoLocationRepository;
   }
 
-  @GetMapping("/api/locations")
+  @GetMapping("/locations")
   public ResponseEntity<List<GpsLocation>> getAllGpsLocations() {
     try {
       List<GpsLocation> tutorials = geoLocationRepository.findAll();
@@ -36,19 +39,22 @@ public class GeoLocationController {
 
       return new ResponseEntity<>(tutorials, HttpStatus.OK);
     } catch (Exception e) {
-
+      log.warn("Exception occurred while retrieving data", e);
       return new ResponseEntity<>(null, HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 
-  @RequestMapping(value = "/api/locations/{id}", consumes = "application/json", method = RequestMethod.GET)
+  @RequestMapping(value = "/location/{id}", consumes = "application/json", method = RequestMethod.GET)
   public ResponseEntity<GpsLocation> getGpsLocationById(@PathVariable("id") String id) {
-    Optional<GpsLocation> gpsLocationData = geoLocationRepository.findById(id);
-
-    return gpsLocationData.map(gpsLocation -> new ResponseEntity<>(gpsLocation, HttpStatus.OK)).orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
+    try {
+      return  new ResponseEntity<>(geoLocationRepository.findById(id).get(), HttpStatus.OK);
+    } catch (ResourceNotFoundException e) {
+      log.warn("Exception occurred while retrieving data", e);
+      return new ResponseEntity<>(null, HttpStatus.NOT_FOUND);
+    }
   }
 
-  @RequestMapping(value = "/api/locations/", produces = "application/json", method = RequestMethod.POST)
+  @RequestMapping(value = "/populate", produces = "application/json", method = RequestMethod.POST)
   public ResponseEntity<GpsLocation> createTutorial(@RequestBody GpsLocation gpsLocation) {
     try {
       GpsLocation _gpsLocation1 = geoLocationRepository.save(new GpsLocation(UUID.randomUUID().toString() ,gpsLocation.getLatitude(), gpsLocation.getLongitude()));
@@ -60,7 +66,7 @@ public class GeoLocationController {
   }
 
 
-  @RequestMapping(value = "/api/locations/{id}", method = RequestMethod.DELETE)
+  @RequestMapping(value = "/{id}", method = RequestMethod.DELETE)
   public ResponseEntity<HttpStatus> deleteTutorial(@PathVariable("id") String id) {
     try {
       geoLocationRepository.deleteById(id);
@@ -71,20 +77,16 @@ public class GeoLocationController {
   }
 
 
-  @RequestMapping(value = "/api/locations/{idSource}/{idDest}", consumes = "application/json", method = RequestMethod.GET)
+  @RequestMapping(value = "/compare/{idSource}/{idDest}", method = RequestMethod.GET)
   public ResponseEntity<Double> getDistanceBetweenTwoPos(@PathVariable("idSource") String idSource, @PathVariable("idDest") String idDest) {
-
-    final GeodeticCalculator calc = new GeodeticCalculator();
-
-    Optional<GpsLocation> sourceLocation = geoLocationRepository.findById(idSource);
-    Optional<GpsLocation> destLocation = geoLocationRepository.findById(idDest);
-    final Point2D source = new Point2D.Double(sourceLocation.get().getLatitude(), sourceLocation.get().getLongitude());
-    final Point2D destination = new Point2D.Double(destLocation.get().getLatitude(), destLocation.get().getLongitude());
-    calc.setStartingGeographicPoint(source);
-    calc.setDestinationGeographicPoint(destination);
-
-    System.out.println("Distance London-NY: " + calc.getOrthodromicDistance()/1000 + " kms");
-
-    return new ResponseEntity<>(calc.getOrthodromicDistance()/1000, HttpStatus.OK);
+    try {
+      Optional<GpsLocation> sourceLocation = geoLocationRepository.findById(idSource);
+      Optional<GpsLocation> destLocation = geoLocationRepository.findById(idDest);
+      return new ResponseEntity<>(GeoUtils.calculateDistanceBetween(sourceLocation.get(), destLocation.get()), HttpStatus.OK);
+    } catch (Exception e) {
+      log.warn("Unexpected exception occurred while handling distance", e);
+      return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+    }
   }
+
 }
